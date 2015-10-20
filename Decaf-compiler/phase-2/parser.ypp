@@ -1,0 +1,328 @@
+/* -*-mode: c-*- : To change mode in Emacs */
+
+%{
+#include <iostream>
+#include <cstdio>
+#include <vector>
+#include <cctype>
+#include <cstdarg>
+#include "AST.cpp"
+using namespace std;
+
+
+int yylex(void);
+void yyerror(char const *);
+
+head* ast;
+vector<arguments*>* arglist;
+
+%}
+
+%token IF ELSE FOR RETURN BREAK CONTINUE CALLOUT CLASS PROGRAM
+%token TRUE FALSE
+%token INT BOOLEAN VOID
+%token EQUAL MINUS_EQUAL PLUS_EQUAL
+%token PLUS MINUS MULTIPLY DIVIDE MOD
+%token LESS_THAN LESS_THAN_EQUAL GREATER_THAN GREATER_THAN_EQUAL
+%token EQUAL_EQUAL NOT_EQUAL
+%token AND OR
+%token OPEN_CURLY CLOSE_CURLY OPEN_SQUARE CLOSE_SQUARE OPEN_PAREN CLOSE_PAREN
+%token IDENTIFIER SEMI_COLON COMMA EXCLAMATION
+%token HEX_LITERAL
+%token DECIMAL_LITERAL
+%token STRING_LITERAL
+%token CHAR_LITERAL
+
+%union
+{
+  int ival;
+  char* cval;
+  char* sval;
+  bool bval;
+  expression* e;
+  vector<expression*>* ve;
+  statement* s;
+  vector<statement*>* vs;
+  vector<char*>* vsval;
+  head* h;
+  block* blk;
+  assignmentoperators a;
+  parameters* par;
+  location* loc;
+  methodcall* mc;
+  vector<arguments*>* va;
+}
+
+%right EQUAL
+%left OR
+%left AND
+%left EQUAL_EQUAL NOT_EQUAL
+%nonassoc LESS_THAN LESS_THAN_EQUAL GREATER_THAN GREATER_THAN_EQUAL
+%left PLUS MINUS
+%left DIVIDE MULTIPLY MOD
+%right EXCLAMATION UMINUS
+
+%type<h> program
+%type<s> field_decl
+%type<vs> many_field
+%type<s> field
+%type<s> method_decl
+%type<va> parameters
+%type<blk> block
+%type<s> var_decl
+%type<vsval> many_var
+%type<sval> var
+%type<sval> type
+%type<s> statement
+%type<a> assign_op
+%type<e> method_call
+%type<ve> many_callout_arg
+%type<e> callout_arg
+%type<ve> many_expr
+%type<loc>location
+%type<e> expr
+%type<vs> decls
+%type<bval> bool_literal
+%type<sval> STRING_LITERAL
+%type<cval> CHAR_LITERAL
+%type<ival> DECIMAL_LITERAL
+%type<sval> HEX_LITERAL
+%type<sval> VOID
+%type<sval> INT
+%type<sval> BOOLEAN
+%type<sval> IDENTIFIER
+%type<bval> TRUE
+%type<bval> FALSE
+%type<vs> statements
+%type<vs> var_decls
+
+%%
+
+program             : CLASS PROGRAM OPEN_CURLY decls CLOSE_CURLY
+		    {
+                      ast = new head($4);
+                      ast->print();
+                    }
+                    ;
+
+decls		    : decls field_decl
+		      {
+			      $$=$1;
+			      $$->push_back($2);
+		      }
+		    | decls method_decl
+		      {
+			      $$=$1;
+			      $$->push_back($2);
+		      }
+		    | /* empty */
+		      {
+			      $$=new vector<statement*>();
+		      }
+		    ;
+
+field_decl          : type many_field SEMI_COLON 
+                    { 
+                      $$ = new fielddeclaration($1,$2); 
+                    }
+                    ;
+
+many_field          : field
+                    { 
+                      $$ = new vector<statement*>();
+                      $$->push_back($1); 
+                    }
+                    | many_field COMMA field 
+                    { 
+                      $$ = $1; 
+                      $$->push_back($3);
+                    }
+                    ;
+
+field               : IDENTIFIER
+                    {
+                      $$=new field($1,0);
+                    }
+                    | IDENTIFIER OPEN_SQUARE DECIMAL_LITERAL CLOSE_SQUARE
+                    {
+                      $$=new field($1,$3);
+                    }
+                    ;
+
+method_decl         : type IDENTIFIER OPEN_PAREN CLOSE_PAREN block
+   		    {
+                      $$=new methoddeclaration($1,$2,NULL,$5);
+                    }
+                    | VOID IDENTIFIER OPEN_PAREN CLOSE_PAREN block
+                    {
+                      $$=new methoddeclaration($1,$2,NULL,$5);
+                    }
+		    | type IDENTIFIER OPEN_PAREN parameters CLOSE_PAREN block
+   		    {
+                      $$=new methoddeclaration($1,$2,$4,$6);
+                    }
+                    | VOID IDENTIFIER OPEN_PAREN parameters CLOSE_PAREN block
+                    {
+                      $$=new methoddeclaration($1,$2,$4,$6);
+                    }
+		    ;
+
+parameters          :                      type IDENTIFIER
+                    {
+			    $$=new vector<arguments*>();
+                      $$->push_back(new arguments($1,$2));
+                    }
+                    | type IDENTIFIER COMMA parameters
+                    {
+			    $$=$4;
+                      $$->push_back(new arguments($1,$2));
+                    }
+                    ;
+block               : OPEN_CURLY var_decls statements CLOSE_CURLY
+                    {
+                      $$ = new block($2,$3);
+                    }
+                    ;
+var_decls 	        : var_decls var_decl
+		            {
+                      $$=$1;
+                      $$->push_back($2);
+                    }
+		            | /* empty */
+		            {
+                      $$=new vector<statement*>();
+
+                    }
+		            ;
+
+var_decl            : type many_var SEMI_COLON { $$=new vardeclaration($1,$2); }
+                    ;
+
+many_var            : var               { $$ = new vector<char*>(); $$->push_back($1); }
+                    | many_var COMMA var { $$ = $1; $$->push_back($3); }
+                    ;
+
+var                 : IDENTIFIER { $$=$1; }
+		            ;
+
+type                : INT     { $$=$1; }
+                    | BOOLEAN { $$=$1; }
+                    ;
+
+statements 	        : statements statement
+		            {
+                      $$=$1;
+                      $$->push_back($2);
+                    }
+                    | /* empty */
+		            {
+                      $$=new vector<statement*>();
+                    }
+		            ;
+
+statement           : location assign_op expr SEMI_COLON 
+                      { $$ = new locationstatement($1,$2,$3); }
+                    | method_call SEMI_COLON
+                      { $$ = new methodcallstatement($1); }
+                    | IF OPEN_PAREN expr CLOSE_PAREN block ELSE block
+                      { $$ = new ifcondition($3,$5,$7); }
+                    | IF OPEN_PAREN expr CLOSE_PAREN block
+                      { $$ = new ifcondition($3,$5,NULL); }
+                    | FOR IDENTIFIER EQUAL expr COMMA expr block
+                      { $$ = new forloop($2,$4,$6,$7); }
+                    | RETURN expr SEMI_COLON  { $$ = new returnstatement($2); }
+                    | RETURN SEMI_COLON       { $$ = new returnstatement(NULL); }
+                    | BREAK SEMI_COLON        { $$ = new breakstatement(); }
+                    | CONTINUE SEMI_COLON     { $$ = new continuestatement(); }
+                    | block                   { $$ = $1; }
+                    ;
+
+assign_op           : EQUAL       { $$=EQ; }
+                    | PLUS_EQUAL  { $$=PE; }
+                    | MINUS_EQUAL { $$=ME; }
+                    ;
+
+method_call         : IDENTIFIER OPEN_PAREN CLOSE_PAREN
+                    {
+                      $$=new methodcall($1,NULL);
+                    }
+                    | IDENTIFIER OPEN_PAREN many_expr CLOSE_PAREN
+                    {
+                      $$=new methodcall($1,$3);
+                    }
+                    | CALLOUT OPEN_PAREN STRING_LITERAL many_callout_arg CLOSE_PAREN
+                    {
+                      $$ = new calloutcall($3, $4);
+                    }
+                    ;
+
+many_callout_arg    : /* empty */
+                    {
+                      $$=new vector<expression*>;
+                    }
+                    | many_callout_arg COMMA callout_arg { $$=$1; $$->push_back($3); }
+                    ;
+
+callout_arg         : expr           { $$=$1; }
+                    | STRING_LITERAL { $$=new stringliteral($1); }
+                    ;
+
+many_expr           : expr                 { $$=new vector<expression*>(); $$->push_back($1); }
+                    | many_expr COMMA expr { $$=$1; $$->push_back($3); }
+                    ;
+
+   
+location            : IDENTIFIER
+                    {
+                      $$=new location($1,NULL,1);
+		            }
+        	        | IDENTIFIER OPEN_SQUARE CLOSE_SQUARE
+                    {
+                      $$=new location($1,NULL,2);
+                    }
+                    | IDENTIFIER OPEN_SQUARE expr CLOSE_SQUARE 
+                    { 
+                      $$=new location($1,$3,3);
+                    }
+		            ;
+
+expr                : location                      { $$ = $1; }
+                    | method_call                   { $$ = $1; } 
+                    | DECIMAL_LITERAL               { $$ = new decimalliteral($1); }
+		            | HEX_LITERAL                   { $$ = new hexliteral($1); }
+		            | CHAR_LITERAL                  { $$ = new charliteral($1); }
+                    | bool_literal                  { $$ = new boolliteral($1); }
+                    | MINUS expr                   { $$ = new unary(UNM,$2);   }
+                    | EXCLAMATION expr %prec UMINUS { $$ = new unary(UNN,$2); }
+                    | OPEN_PAREN expr CLOSE_PAREN   { $$ = new parentheses($2); }
+                    | expr PLUS expr                { $$ = new binary($1,ADD,$3); }
+                    | expr MINUS expr               { $$ = new binary($1,SUB,$3); }
+                    | expr MULTIPLY expr            { $$ = new binary($1,PROD,$3); }
+                    | expr DIVIDE expr              { $$ = new binary($1,QUO,$3);  }
+                    | expr MOD expr                 { $$ = new binary($1,REM,$3);  }
+                    | expr GREATER_THAN expr        { $$ = new binary($1,GT,$3); }
+                    | expr LESS_THAN expr           { $$ = new binary($1,LT,$3); }
+                    | expr GREATER_THAN_EQUAL expr  { $$ = new binary($1,GE,$3); }
+                    | expr LESS_THAN_EQUAL expr     { $$ = new binary($1,LE,$3); }
+                    | expr AND expr                 { $$ = new binary($1,BAND,$3); }
+                    | expr OR expr                  { $$ = new binary($1,BOR,$3);  }
+                    | expr NOT_EQUAL expr           { $$ = new binary($1,NE,$3);   }
+                    | expr EQUAL_EQUAL expr         { $$ = new binary($1,EE,$3);   }  
+                    ;
+
+bool_literal        : TRUE  { $$=$1; }
+                    | FALSE { $$=$1; }
+                    ;
+
+%%
+
+int main (void)
+{
+  yyparse();
+  return 0;
+}
+  
+void yyerror (char const *s)
+{
+  fprintf(stderr, "%s\n", s);
+}
